@@ -4,6 +4,7 @@
  */
 
 let stars = [];
+let bgStars = []; // 存储背景微粒
 let sectors = ["家庭", "职场", "朋友", "兴趣"];
 let colors = ["#FF6B6B", "#4D96FF", "#6BCB77", "#FFD93D"];
 
@@ -21,43 +22,57 @@ const STORAGE_KEY = "echo_universe_final_v1";
 function setup() {
   createCanvas(windowWidth, windowHeight);
 
-  // 1. 初始化样式和界面
   initPanelStyles();
   createMemoryPanelUI();
   createTimeSliderUI();
-
-  // 2. 加载存档
-  loadStarsFromLocalStorage();
   
-  // 3. 初始化时间范围
+  loadStarsFromLocalStorage();
   updateTimeBounds();
+  
+  // --- 新增：初始化 200 个背景微粒 ---
+  for(let i=0; i<200; i++) {
+    bgStars.push({
+      x: random(width),
+      y: random(height),
+      size: random(0.5, 2),
+      alpha: random(50, 150),
+      speed: random(0.1, 0.3)
+    });
+  }
 }
 
 function draw() {
-  background(0, 0, 15); // 深空背景
+  background(10, 10, 20); // 稍微调亮一点点的深蓝黑，更有质感
+
+  // --- 新增：绘制动态星尘背景 ---
+  noStroke();
+  for (let b of bgStars) {
+    fill(255, b.alpha);
+    ellipse(b.x, b.y, b.size);
+    // 让背景微微移动，制造漂浮感
+    b.y -= b.speed; 
+    if (b.y < 0) b.y = height; // 循环
+    // 闪烁效果
+    if (random() > 0.99) b.alpha = random(50, 150);
+  }
 
   drawSectors();
   drawMe();
   
-  // 实时计算当前视图时间
   updateCurrentViewDate();
 
-  // 遍历所有星星
   for (let s of stars) {
-    // --- 核心逻辑：如果星星诞生于未来，则隐藏 ---
     if (s.createdAt > currentViewDate) continue;
 
     if (isPanelOpen) {
-      // 面板打开时变慢
       s.angle += s.orbitSpeed * 0.2;
       s.currentR = lerp(s.currentR, s.targetR, 0.03);
     } else {
       s.update();
     }
-    s.display();
+    s.display(); // 这里会调用新的呼吸效果
   }
 
-  // 打捞准星 (仅在“现在”时刻允许打捞)
   let isAtPresent = (timeSlider.value() >= 100);
   if (!isPanelOpen && mouseIsPressed && isAtPresent && mouseY < height - 80) {
     drawFishingUI();
@@ -196,30 +211,64 @@ class Star {
     let p = this.getPos();
     return dist(mouseX, mouseY, p.x, p.y) < 14;
   }
-  display() {
+    display() {
     push();
     translate(width / 2, height / 2);
-    // 轨道
-    noFill(); stroke(red(this.color), green(this.color), blue(this.color), 30); ellipse(0, 0, this.targetR * 2);
-    // 坐标
+
+    // 轨道 (稍微降低透明度，让它更隐约)
+    noFill();
+    stroke(red(this.color), green(this.color), blue(this.color), 20);
+    ellipse(0, 0, this.targetR * 2);
+
     let x = cos(this.angle) * this.currentR;
     let y = sin(this.angle) * this.currentR;
+
     let hover = dist(mouseX - width / 2, mouseY - height / 2, x, y) < 14;
+
+    // --- 呼吸算法 ---
+    // 使用 sin 函数制造周期性波动
+    // frameCount * 0.05 控制速度，+ this.id.charCodeAt(0) 让每颗星的呼吸节奏不一样，不至于同频
+    let breath = sin(frameCount * 0.05 + this.id.charCodeAt(0)) * 2; 
+    let currentSize = this.size + breath; // 实时大小
     
     // 悬停交互
     if (hover && !isPanelOpen) {
-      fill(255); noStroke(); textAlign(LEFT, CENTER); text(this.name, x + 14, y);
-      noFill(); stroke(this.color); ellipse(0, 0, this.targetR * 2);
+      fill(255);
+      noStroke();
+      textAlign(LEFT, CENTER);
+      text(this.name, x + 16, y); // 名字往右挪一点，避开光晕
+      
+      // 轨道高亮
+      noFill();
+      stroke(this.color);
+      ellipse(0, 0, this.targetR * 2);
+      
+      currentSize = this.size * 1.3; // 悬停时放大并停止呼吸
     }
-    // 选中光圈
+
+    // 选中状态
     if (this.id === selectedStarId) {
-      noFill(); stroke(255); strokeWeight(2); ellipse(x, y, 22); strokeWeight(1);
+      noFill();
+      stroke(255);
+      strokeWeight(2);
+      ellipse(x, y, 24 + breath); // 选中圈也跟着呼吸
+      strokeWeight(1);
     }
-    // 星体
-    fill(this.color); noStroke();
-    drawingContext.shadowBlur = hover ? 18 : 10;
+
+    // --- 绘制发光本体 ---
+    fill(this.color);
+    noStroke();
+    
+    // 第一层：核心
+    ellipse(x, y, currentSize);
+    
+    // 第二层：柔和光晕 (利用 shadowBlur)
+    // 悬停时光晕更强
+    drawingContext.shadowBlur = hover ? 30 : 15;
     drawingContext.shadowColor = this.color;
-    ellipse(x, y, hover ? this.size * 1.2 : this.size);
+    // 重画一次以叠加光晕效果
+    ellipse(x, y, currentSize);
+
     pop();
   }
 }
