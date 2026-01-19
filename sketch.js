@@ -135,7 +135,16 @@ function handleInputEnd(x, y) {
 // p5 事件监听
 function mousePressed() { handleInputStart(mouseX, mouseY); return false; }
 function mouseReleased() { handleInputEnd(mouseX, mouseY); return false; }
-function touchStarted() { if (touches.length > 0) handleInputStart(touches[0].x, touches[0].y); return false; }
+function touchStarted() {
+  // 如果点在了面板上，直接返回，不执行 handleInputStart
+  // 这样就不会干扰输入框获取焦点
+  if (isPanelOpen) return; 
+
+  if (touches.length > 0) {
+    handleInputStart(touches[0].x, touches[0].y);
+  }
+  return false; 
+}
 function touchEnded() { handleInputEnd(mouseX, mouseY); return false; }
 
 function getStarAt(x, y, threshold) {
@@ -215,10 +224,8 @@ function createMemoryPanelUI() {
   backdrop.id("backdrop");
   backdrop.hide();
   
-  // 强制使用原生点击，解决手机穿透
+  // 遮罩点击关闭
   backdrop.elt.onclick = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
     closePanel();
   };
 
@@ -237,29 +244,46 @@ function createMemoryPanelUI() {
   panel.id("memory-panel");
   panel.hide();
 
-  // 拦截面板内点击，防止点到下面的星星
-  panel.elt.onclick = (e) => e.stopPropagation();
+  // 关键修复：阻止面板上的所有触摸事件传给下面的 Canvas
   panel.elt.ontouchstart = (e) => e.stopPropagation();
+  panel.elt.ontouchend = (e) => e.stopPropagation();
+  panel.elt.onclick = (e) => e.stopPropagation();
 
-  document.getElementById('save-btn').onclick = (e) => { saveNewMemory(); };
-  document.getElementById('close-btn').onclick = (e) => { closePanel(); };
+  // 绑定原生按钮事件
+  document.getElementById('save-btn').onclick = (e) => {
+    e.stopPropagation();
+    saveNewMemory();
+  };
+
+  document.getElementById('close-btn').onclick = (e) => {
+    e.stopPropagation();
+    closePanel();
+  };
 }
 
 function openPanel(star) {
   isPanelOpen = true;
   selectedStarId = star.id;
+  
+  // 核心修复：当面板打开时，让 Canvas 彻底“隐身”，不再接收任何点击
+  select('canvas').style('pointer-events', 'none'); 
+
   select("#panel-title").html(star.name);
   select("#panel-sector").html(sectors[star.sectorIndex]);
   const list = select("#memory-list"); list.html("");
   (star.memories || []).forEach(mem => addMemoryToDOM(mem));
+  
   select("#backdrop").show();
   select("#memory-panel").style("display", "flex");
 }
 
 function closePanel() {
-  // 延迟一丁点关闭标记，防止点击穿透到 canvas 触发新打捞
-  setTimeout(() => { isPanelOpen = false; }, 100);
+  isPanelOpen = false;
   selectedStarId = null;
+
+  // 核心修复：面板关闭，Canvas 恢复交互
+  select('canvas').style('pointer-events', 'auto'); 
+
   select("#memory-panel").hide();
   select("#backdrop").hide();
 }
