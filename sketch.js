@@ -429,15 +429,7 @@ function createMemoryPanelUI() {
   const backdrop = createDiv("");
   backdrop.id("backdrop");
   backdrop.hide();
-  
-  // --- 修复 1: 同时监听鼠标点击和手指触摸 ---
-  // 电脑端
-  backdrop.mousePressed(() => closePanel());
-  // 手机端 (p5.js 的 touchStarted 有时会穿透，我们用原生事件更稳)
-  backdrop.elt.addEventListener('touchstart', (e) => {
-    e.preventDefault(); // 防止穿透
-    closePanel();
-  }, {passive: false});
+  backdrop.mousePressed(() => closePanel()); // 点击遮罩关闭
 
   const panel = createDiv(`
     <div id="panel-header">
@@ -449,33 +441,17 @@ function createMemoryPanelUI() {
       <textarea id="memory-input" placeholder="写下关于 ta 的记忆..."></textarea>
       <button id="save-btn">记录</button>
     </div>
-    <!-- 修复 2: 增大关闭按钮的热区 -->
-    <div id="close-btn-area">×</div> 
+    <button id="close-btn">×</button>
   `);
   panel.id("memory-panel");
   panel.hide();
 
-  // --- 修复 3: 防止面板内部的触摸穿透到画布 ---
-  const stopProp = (e) => e.stopPropagation();
-  panel.elt.addEventListener("mousedown", stopProp);
-  panel.elt.addEventListener("touchstart", stopProp, {passive: true});
-  panel.elt.addEventListener("click", stopProp);
+  // 阻止点击穿透
+  panel.elt.addEventListener("mousedown", (e) => e.stopPropagation());
+  panel.elt.addEventListener("click", (e) => e.stopPropagation());
 
-  // 绑定保存按钮
-  const saveBtn = select("#save-btn");
-  saveBtn.mousePressed(saveNewMemory);
-  saveBtn.touchStarted(saveNewMemory); // 手机适配
-
-  // 绑定关闭按钮 (使用新的热区 div)
-  const closeBtn = select("#close-btn-area");
-  // 电脑
-  closeBtn.mousePressed(() => closePanel());
-  // 手机
-  closeBtn.touchStarted((e) => {
-    // e.preventDefault(); 
-    closePanel();
-    return false; // p5 way to stop propagation
-  });
+  select("#save-btn").mousePressed(saveNewMemory);
+  select("#close-btn").mousePressed(closePanel);
 }
 
 function openPanel(star) {
@@ -533,32 +509,25 @@ function addMemoryToDOM(mem) {
 
 function initPanelStyles() {
   const css = `
-    /* ... 之前的样式保持不变 ... */
-    
-    /* --- 修复 4: 专门为手机优化的关闭按钮 --- */
-    #close-btn-area {
-      position: absolute;
-      top: 0;
-      right: 0;
-      width: 60px;   /* 够大，好点 */
-      height: 60px;
-      line-height: 60px;
-      text-align: center;
-      color: rgba(255,255,255,0.6);
-      font-size: 32px;
-      font-weight: 200;
-      cursor: pointer;
-      z-index: 1001; /* 确保在最上层 */
-    }
-    #close-btn-area:active {
-      color: #fff;
-      background: rgba(255,255,255,0.1);
-    }
-    
-    /* 优化输入框在手机上的体验 */
-    #memory-input {
-      font-size: 16px; /* 防止 iOS 输入时自动放大页面 */
-    }
+    /* 时间轴样式 */
+    input[type=range].time-slider { -webkit-appearance: none; background: transparent; }
+    input[type=range].time-slider::-webkit-slider-thumb { -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%; background: #4D96FF; cursor: pointer; margin-top: -6px; box-shadow: 0 0 10px #4D96FF; }
+    input[type=range].time-slider::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: rgba(255,255,255,0.2); border-radius: 2px; }
+
+    /* 记忆面板样式 */
+    #backdrop{ display:none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 999; pointer-events: auto; }
+    #memory-panel{ display:none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 340px; height: 480px; background: rgba(20, 20, 30, 0.95); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; color: #fff; font-family: sans-serif; z-index: 1000; overflow: hidden; display: flex; flex-direction: column; pointer-events: auto; }
+    #panel-header{ padding: 18px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    #panel-title{ margin: 0; font-size: 22px; }
+    .tag{ display:inline-block; margin-top: 8px; font-size: 12px; background: rgba(255,255,255,0.1); padding: 3px 8px; border-radius: 10px; color: #aaa; }
+    #memory-list{ flex: 1; overflow-y: auto; padding: 14px 18px; }
+    .memory-item{ margin-bottom: 14px; padding-left: 10px; border-left: 2px solid #FFCC00; }
+    .memory-date{ font-size: 11px; color: #888; margin-bottom: 2px; }
+    .memory-content{ font-size: 14px; color: #eee; }
+    #panel-input-area{ display:flex; gap: 10px; padding: 14px; background: rgba(0,0,0,0.2); border-top: 1px solid rgba(255,255,255,0.1); }
+    #memory-input{ flex: 1; height: 40px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: white; padding: 8px; resize: none; }
+    #save-btn{ background: #4D96FF; color: white; border: none; border-radius: 8px; padding: 0 12px; cursor: pointer; }
+    #close-btn{ position:absolute; top: 10px; right: 12px; background: none; border: none; color: #aaa; font-size: 24px; cursor: pointer; }
   `;
   createElement("style", css);
 }
