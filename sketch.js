@@ -1,120 +1,131 @@
 /**
- * Echo Universe - V0.2 (时光机版)
- * 包含：打捞、记忆面板、本地存档 + 【时间轴回溯】
+ * Echo Universe - Prototype V0.2 (Full Expanded Version)
+ * 包含：星系、打捞、记忆面板、时间轴回溯、本地存储
  */
 
 let stars = [];
-let bgStars = []; // 存储背景微粒
 let sectors = ["家庭", "职场", "朋友", "兴趣"];
 let colors = ["#FF6B6B", "#4D96FF", "#6BCB77", "#FFD93D"];
 
 let isPanelOpen = false;
 let selectedStarId = null;
 
-// 时间轴变量
+// 时间轴相关
 let timeSlider;
 let timeLabel;
 let minDate, maxDate;
 let currentViewDate;
 
-const STORAGE_KEY = "echo_universe_final_v1";
+const STORAGE_KEY = "echoUniverse_V5_Safe"; // 换个Key防止旧数据冲突
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
 
+  // 1. 初始化样式
   initPanelStyles();
+  
+  // 2. 创建界面元素
   createMemoryPanelUI();
   createTimeSliderUI();
   
+  // 3. 加载数据
   loadStarsFromLocalStorage();
-  updateTimeBounds();
   
-  // --- 新增：初始化 200 个背景微粒 ---
-  for(let i=0; i<200; i++) {
-    bgStars.push({
-      x: random(width),
-      y: random(height),
-      size: random(0.5, 2),
-      alpha: random(50, 150),
-      speed: random(0.1, 0.3)
-    });
-  }
+  // 4. 初始化时间边界
+  updateTimeBounds();
 }
 
 function draw() {
-  background(10, 10, 20); // 稍微调亮一点点的深蓝黑，更有质感
-
-  // --- 新增：绘制动态星尘背景 ---
-  noStroke();
-  for (let b of bgStars) {
-    fill(255, b.alpha);
-    ellipse(b.x, b.y, b.size);
-    // 让背景微微移动，制造漂浮感
-    b.y -= b.speed; 
-    if (b.y < 0) b.y = height; // 循环
-    // 闪烁效果
-    if (random() > 0.99) b.alpha = random(50, 150);
-  }
+  background(0, 0, 15);
 
   drawSectors();
   drawMe();
   
+  // 实时更新当前时间视图
   updateCurrentViewDate();
 
   for (let s of stars) {
+    // --- 时间过滤核心逻辑 ---
+    // 如果星星的诞生时间晚于滑块选择的时间，就不画它
     if (s.createdAt > currentViewDate) continue;
 
     if (isPanelOpen) {
+      // 面板打开时，星星变慢
       s.angle += s.orbitSpeed * 0.2;
       s.currentR = lerp(s.currentR, s.targetR, 0.03);
     } else {
+      // 正常运转
       s.update();
     }
-    s.display(); // 这里会调用新的呼吸效果
+    s.display();
   }
 
+  // 打捞准星逻辑
   let isAtPresent = (timeSlider.value() >= 100);
-  if (!isPanelOpen && mouseIsPressed && isAtPresent && mouseY < height - 80) {
+  // 只有在：面板关闭 + 处于“现在”时间 + 鼠标按下时，才显示打捞UI
+    // 兼容鼠标按压 和 手指按压
+  let isInputActive = mouseIsPressed || (touches.length > 0);
+  
+  if (!isPanelOpen && isInputActive && isAtPresent && mouseY < height - 80) {
     drawFishingUI();
   }
 }
 
-// --- 交互事件 ---
+// --- 交互逻辑 ---
 
-function mousePressed() {
+// ==========================================
+//   新的通用交互逻辑 (同时支持鼠标和触摸)
+// ==========================================
+
+// 1. 处理“按下” (无论是鼠标点还是手指按)
+function handleInputStart(x, y) {
   if (isPanelOpen) return;
-  if (mouseY > height - 80) return; // 避开底部滑块
+  if (y > height - 80) return; // 避开底部滑块
 
-  const hit = getStarUnderMouse();
+  // 修正触摸坐标 (p5.js 的 touch 有时是个数组)
+  let inputX = x;
+  let inputY = y;
+
+  const hit = getStarUnderMouse(inputX, inputY);
+  
   // 只有当前显示的星星才能点击
   if (hit && hit.createdAt <= currentViewDate) {
     openPanel(hit);
+    return; // 如果点中星星，就不要触发打捞
   }
+  
+  // 记录打捞开始
+  // (p5.js 的 mouseIsPressed 在触摸模式下反应较慢，我们手动标记)
+  window.isInteracting = true; 
 }
 
-function mouseReleased() {
+// 2. 处理“松开”
+function handleInputEnd(x, y) {
+  window.isInteracting = false;
+  
   if (isPanelOpen) return;
-  if (mouseY > height - 80) return;
+  if (y > height - 80) return;
 
   // 只有在“现在”才能打捞
   let isAtPresent = (timeSlider.value() >= 100);
   if (!isAtPresent) return;
 
-  const hit = getStarUnderMouse();
+  const hit = getStarUnderMouse(x, y);
   if (hit) return;
 
-  let d = dist(mouseX, mouseY, width / 2, height / 2);
+  let d = dist(x, y, width / 2, height / 2);
   if (d <= 30) return;
 
   // 生成逻辑
   let radius = constrain(d, 50, width / 2);
-  let ang = atan2(mouseY - height / 2, mouseX - width / 2);
+  let ang = atan2(y - height / 2, x - width / 2);
   if (ang < 0) ang += TWO_PI;
   
   let sectorIndex = floor(map(ang, 0, TWO_PI, 0, sectors.length));
   sectorIndex = constrain(sectorIndex, 0, sectors.length - 1);
 
   let name = prompt("这颗星星叫什么名字？", "某人");
+  // 注意：手机上 prompt 可能会打断全屏体验，后期可以用自定义模态框代替
   if (!name) return;
 
   const star = new Star({
@@ -126,7 +137,7 @@ function mouseReleased() {
     orbitSpeed: random(0.002, 0.005) * (random() > 0.5 ? 1 : -1) * map(radius, 50, width / 2, 1.2, 0.6),
     size: random(5, 8),
     memories: [],
-    createdAt: Date.now() // 记录诞生时间
+    createdAt: Date.now()
   });
 
   stars.push(star);
@@ -134,7 +145,43 @@ function mouseReleased() {
   saveStarsToLocalStorage();
 }
 
-// --- 时间轴 UI 逻辑 ---
+// ==========================================
+//   p5.js 事件绑定
+// ==========================================
+
+// 鼠标事件
+function mousePressed() {
+  handleInputStart(mouseX, mouseY);
+  // 返回 false 防止默认浏览器行为 (如选中文字)
+  return false; 
+}
+
+function mouseReleased() {
+  handleInputEnd(mouseX, mouseY);
+  return false;
+}
+
+// 触摸事件 (关键！)
+function touchStarted() {
+  // touches[0] 是第一根手指
+  if (touches.length > 0) {
+    handleInputStart(touches[0].x, touches[0].y);
+  }
+  // 必须返回 false，否则手机会触发滚动或缩放
+  return false; 
+}
+
+function touchEnded() {
+  // 注意：touchEnded 时 touches 数组可能已经空了，我们用 p5 的 mouseX/Y 近似最后位置
+  // 或者直接不传参，依靠 handleInputEnd 里的逻辑
+  handleInputEnd(mouseX, mouseY);
+  return false;
+}
+
+// 还要修改一下 draw() 里绘制准星的判断条件
+// 把 mouseIsPressed 改成 (mouseIsPressed || (touches.length > 0))
+
+// --- 时间轴 UI ---
 
 function createTimeSliderUI() {
   timeSlider = createSlider(0, 100, 100);
@@ -145,9 +192,11 @@ function createTimeSliderUI() {
   timeLabel = createDiv("现在");
   timeLabel.position(width/2, height - 90);
   timeLabel.id('time-label');
-  timeLabel.style('pointer-events', 'none');
+  timeLabel.style('color', '#4D96FF');
+  timeLabel.style('font-family', 'sans-serif');
   timeLabel.style('text-align', 'center');
   timeLabel.style('transform', 'translateX(-50%)');
+  timeLabel.style('pointer-events', 'none');
 }
 
 function updateTimeBounds() {
@@ -159,12 +208,12 @@ function updateTimeBounds() {
     minDate = min(timestamps);
     maxDate = Date.now();
   }
-  // 起点往前推7天，确保能回溯到空状态
+  // 起点往前推7天，保证能回溯到空状态
   minDate = minDate - 1000 * 60 * 60 * 24 * 7;
 }
 
 function updateCurrentViewDate() {
-  maxDate = Date.now(); // 终点始终是现在
+  maxDate = Date.now();
   let val = timeSlider.value();
   currentViewDate = map(val, 0, 100, minDate, maxDate);
   
@@ -182,7 +231,7 @@ function updateCurrentViewDate() {
   }
 }
 
-// --- 基础类与函数 ---
+// --- 星星类 ---
 
 class Star {
   constructor({ id, name, sectorIndex, targetR, angle, orbitSpeed, size, memories, createdAt }) {
@@ -197,27 +246,34 @@ class Star {
     this.memories = memories || [];
     this.createdAt = createdAt || Date.now();
   }
-  get color() { return colors[this.sectorIndex]; }
+
+  get color() {
+    return colors[this.sectorIndex];
+  }
+
   update() {
     this.currentR = lerp(this.currentR, this.targetR, 0.05);
     this.angle += this.orbitSpeed;
   }
+
   getPos() {
     let x = cos(this.angle) * this.currentR + width / 2;
     let y = sin(this.angle) * this.currentR + height / 2;
     return { x, y };
   }
+
   isMouseOver() {
     let p = this.getPos();
     return dist(mouseX, mouseY, p.x, p.y) < 14;
   }
-    display() {
+
+  display() {
     push();
     translate(width / 2, height / 2);
 
-    // 轨道 (稍微降低透明度，让它更隐约)
+    // 轨道
     noFill();
-    stroke(red(this.color), green(this.color), blue(this.color), 20);
+    stroke(red(this.color), green(this.color), blue(this.color), 30);
     ellipse(0, 0, this.targetR * 2);
 
     let x = cos(this.angle) * this.currentR;
@@ -225,58 +281,53 @@ class Star {
 
     let hover = dist(mouseX - width / 2, mouseY - height / 2, x, y) < 14;
 
-    // --- 呼吸算法 ---
-    // 使用 sin 函数制造周期性波动
-    // frameCount * 0.05 控制速度，+ this.id.charCodeAt(0) 让每颗星的呼吸节奏不一样，不至于同频
-    let breath = sin(frameCount * 0.05 + this.id.charCodeAt(0)) * 2; 
-    let currentSize = this.size + breath; // 实时大小
-    
-    // 悬停交互
+    // 悬停显示名字
     if (hover && !isPanelOpen) {
       fill(255);
       noStroke();
       textAlign(LEFT, CENTER);
-      text(this.name, x + 16, y); // 名字往右挪一点，避开光晕
+      text(this.name, x + 14, y);
       
       // 轨道高亮
       noFill();
       stroke(this.color);
       ellipse(0, 0, this.targetR * 2);
-      
-      currentSize = this.size * 1.3; // 悬停时放大并停止呼吸
     }
 
-    // 选中状态
+    // 选中光圈
     if (this.id === selectedStarId) {
       noFill();
       stroke(255);
       strokeWeight(2);
-      ellipse(x, y, 24 + breath); // 选中圈也跟着呼吸
+      ellipse(x, y, 22);
       strokeWeight(1);
     }
 
-    // --- 绘制发光本体 ---
+    // 星星本体
     fill(this.color);
     noStroke();
-    
-    // 第一层：核心
-    ellipse(x, y, currentSize);
-    
-    // 第二层：柔和光晕 (利用 shadowBlur)
-    // 悬停时光晕更强
-    drawingContext.shadowBlur = hover ? 30 : 15;
+    drawingContext.shadowBlur = hover ? 18 : 10;
     drawingContext.shadowColor = this.color;
-    // 重画一次以叠加光晕效果
-    ellipse(x, y, currentSize);
+    ellipse(x, y, hover ? this.size * 1.2 : this.size);
 
     pop();
   }
 }
 
-function getStarUnderMouse() {
+// --- 辅助功能函数 ---
+
+function getStarUnderMouse(x, y) {
+  // 如果没传参数，默认用鼠标位置
+  let tx = x || mouseX;
+  let ty = y || mouseY;
+  
   for (let i = stars.length - 1; i >= 0; i--) {
-    // 必须也是当前时间可见的星星
-    if (stars[i].createdAt <= currentViewDate && stars[i].isMouseOver()) return stars[i];
+    // 也要修改 isMouseOver 方法，或者直接在这里算距离
+    let p = stars[i].getPos();
+    // 手机上判定范围要大一点 (把 14 改成 30)，因为手指比较粗
+    if (dist(tx, ty, p.x, p.y) < 30 && stars[i].createdAt <= currentViewDate) {
+      return stars[i];
+    }
   }
   return null;
 }
@@ -288,7 +339,10 @@ function drawSectors() {
   for (let i = 0; i < sectors.length; i++) {
     let a = (TWO_PI / sectors.length) * i;
     line(0, 0, cos(a) * width, sin(a) * width);
-    fill(255, 40); noStroke(); textSize(14); textAlign(CENTER, CENTER);
+    fill(255, 40);
+    noStroke();
+    textSize(14);
+    textAlign(CENTER, CENTER);
     let labelA = a + (TWO_PI / sectors.length) / 2;
     text(sectors[i], cos(labelA) * (width / 3), sin(labelA) * (width / 3));
   }
@@ -296,15 +350,28 @@ function drawSectors() {
 }
 
 function drawMe() {
-  push(); translate(width / 2, height / 2); noStroke();
-  for (let i = 6; i > 0; i--) { fill(255, 204, 0, 22 - i * 3); ellipse(0, 0, i * 8); }
-  fill(255, 204, 0); ellipse(0, 0, 10, 10); pop();
+  push();
+  translate(width / 2, height / 2);
+  noStroke();
+  for (let i = 6; i > 0; i--) {
+    fill(255, 204, 0, 22 - i * 3);
+    ellipse(0, 0, i * 8);
+  }
+  fill(255, 204, 0);
+  ellipse(0, 0, 10, 10);
+  pop();
 }
 
 function drawFishingUI() {
-  push(); noFill(); stroke(255, 150); ellipse(mouseX, mouseY, 20, 20);
-  line(mouseX - 15, mouseY, mouseX + 15, mouseY); line(mouseX, mouseY - 15, mouseX, mouseY + 15);
-  stroke(255, 50); line(mouseX, mouseY, width / 2, height / 2); pop();
+  push();
+  noFill();
+  stroke(255, 150);
+  ellipse(mouseX, mouseY, 20, 20);
+  line(mouseX - 15, mouseY, mouseX + 15, mouseY);
+  line(mouseX, mouseY - 15, mouseX, mouseY + 15);
+  stroke(255, 50);
+  line(mouseX, mouseY, width / 2, height / 2);
+  pop();
 }
 
 function windowResized() {
@@ -318,9 +385,19 @@ function cryptoRandomId() {
 }
 
 // --- 存储逻辑 ---
+
 function saveStarsToLocalStorage() {
   const data = stars.map(s => ({
-    id: s.id, name: s.name, sectorIndex: s.sectorIndex, targetR: s.targetR, currentR: s.currentR, angle: s.angle, orbitSpeed: s.orbitSpeed, size: s.size, memories: s.memories, createdAt: s.createdAt
+    id: s.id,
+    name: s.name,
+    sectorIndex: s.sectorIndex,
+    targetR: s.targetR,
+    currentR: s.currentR,
+    angle: s.angle,
+    orbitSpeed: s.orbitSpeed,
+    size: s.size,
+    memories: s.memories || [],
+    createdAt: s.createdAt
   }));
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
@@ -331,39 +408,71 @@ function loadStarsFromLocalStorage() {
   try {
     const data = JSON.parse(saved);
     stars = data.map(item => new Star({
-      id: item.id, name: item.name, sectorIndex: item.sectorIndex, targetR: item.targetR, angle: item.angle, orbitSpeed: item.orbitSpeed, size: item.size, memories: item.memories, createdAt: item.createdAt
+      id: item.id,
+      name: item.name,
+      sectorIndex: item.sectorIndex,
+      targetR: item.targetR,
+      angle: item.angle,
+      orbitSpeed: item.orbitSpeed,
+      size: item.size,
+      memories: item.memories,
+      createdAt: item.createdAt
     }));
-  } catch (e) { console.warn(e); }
+  } catch (e) {
+    console.warn("Load failed", e);
+  }
 }
 
-// --- 记忆面板逻辑 ---
+// --- DOM 面板与样式 ---
+
 function createMemoryPanelUI() {
-  const backdrop = createDiv(""); backdrop.id("backdrop"); backdrop.hide();
-  backdrop.mousePressed(() => closePanel());
+  const backdrop = createDiv("");
+  backdrop.id("backdrop");
+  backdrop.hide();
+  backdrop.mousePressed(() => closePanel()); // 点击遮罩关闭
+
   const panel = createDiv(`
-    <div id="panel-header"><h2 id="panel-title">星星名字</h2><span id="panel-sector" class="tag">扇区</span></div>
+    <div id="panel-header">
+      <h2 id="panel-title">星星名字</h2>
+      <span id="panel-sector" class="tag">扇区</span>
+    </div>
     <div id="memory-list"></div>
-    <div id="panel-input-area"><textarea id="memory-input" placeholder="写下记忆..."></textarea><button id="save-btn">记录</button></div>
+    <div id="panel-input-area">
+      <textarea id="memory-input" placeholder="写下关于 ta 的记忆..."></textarea>
+      <button id="save-btn">记录</button>
+    </div>
     <button id="close-btn">×</button>
   `);
-  panel.id("memory-panel"); panel.hide();
+  panel.id("memory-panel");
+  panel.hide();
+
+  // 阻止点击穿透
   panel.elt.addEventListener("mousedown", (e) => e.stopPropagation());
+  panel.elt.addEventListener("click", (e) => e.stopPropagation());
+
   select("#save-btn").mousePressed(saveNewMemory);
   select("#close-btn").mousePressed(closePanel);
 }
 
 function openPanel(star) {
-  isPanelOpen = true; selectedStarId = star.id;
+  isPanelOpen = true;
+  selectedStarId = star.id;
+
   select("#panel-title").html(star.name);
   select("#panel-sector").html(sectors[star.sectorIndex]);
-  const list = select("#memory-list"); list.html("");
+  const list = select("#memory-list");
+  list.html("");
   (star.memories || []).forEach(mem => addMemoryToDOM(mem));
-  select("#backdrop").show(); select("#memory-panel").show();
+
+  select("#backdrop").show();
+  select("#memory-panel").show();
 }
 
 function closePanel() {
-  isPanelOpen = false; selectedStarId = null;
-  select("#memory-panel").hide(); select("#backdrop").hide();
+  isPanelOpen = false;
+  selectedStarId = null;
+  select("#memory-panel").hide();
+  select("#backdrop").hide();
 }
 
 function saveNewMemory() {
@@ -373,27 +482,39 @@ function saveNewMemory() {
   const text = ta.value.trim();
   if (!text) return;
   const mem = { date: new Date().toLocaleString(), content: text };
+  
   star.memories.push(mem);
   addMemoryToDOM(mem);
   ta.value = "";
+  
   saveStarsToLocalStorage();
 }
 
 function addMemoryToDOM(mem) {
   const list = select("#memory-list");
-  const item = createDiv(""); item.addClass("memory-item");
-  createDiv(mem.date).addClass("memory-date").parent(item);
-  createDiv(mem.content).addClass("memory-content").parent(item);
+  const item = createDiv("");
+  item.addClass("memory-item");
+  
+  const dateDiv = createDiv(mem.date);
+  dateDiv.addClass("memory-date");
+  dateDiv.parent(item);
+  
+  const contentDiv = createDiv(mem.content);
+  contentDiv.addClass("memory-content");
+  contentDiv.parent(item);
+  
   item.parent(list);
   list.elt.scrollTop = list.elt.scrollHeight;
 }
 
-// --- 样式表 ---
 function initPanelStyles() {
   const css = `
+    /* 时间轴样式 */
     input[type=range].time-slider { -webkit-appearance: none; background: transparent; }
     input[type=range].time-slider::-webkit-slider-thumb { -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%; background: #4D96FF; cursor: pointer; margin-top: -6px; box-shadow: 0 0 10px #4D96FF; }
-    input[type=range].time-slider::-webkit-slider-runnable-track { width: 100%; height: 4px; background: rgba(255,255,255,0.2); border-radius: 2px; }
+    input[type=range].time-slider::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: rgba(255,255,255,0.2); border-radius: 2px; }
+
+    /* 记忆面板样式 */
     #backdrop{ display:none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 999; pointer-events: auto; }
     #memory-panel{ display:none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 340px; height: 480px; background: rgba(20, 20, 30, 0.95); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; color: #fff; font-family: sans-serif; z-index: 1000; overflow: hidden; display: flex; flex-direction: column; pointer-events: auto; }
     #panel-header{ padding: 18px; border-bottom: 1px solid rgba(255,255,255,0.06); }

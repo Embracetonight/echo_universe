@@ -1,7 +1,20 @@
 html, body {
   margin: 0;
   padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden; /* 禁止滚动 */
+  background-color: #000;
+  
+  /* 关键：禁止移动端的默认手势 */
+  touch-action: none; 
+  -webkit-touch-callout: none; /* 禁止iOS长按菜单 */
+  -webkit-user-select: none;   /* 禁止选择文字 */
+  user-select: none;
 }
+
 canvas {
   display: block;
 }
+
+/* 之前面板的样式其实是JS注入的，这里主要处理整体容器 */
