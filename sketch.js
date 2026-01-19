@@ -1,237 +1,154 @@
 /**
- * Echo Universe - Prototype V0.2 (Full Expanded Version)
- * 包含：星系、打捞、记忆面板、时间轴回溯、本地存储
+ * Echo Universe - V0.3 (Mobile & Desktop Unified)
+ * 包含：星系、呼吸感、时光机、玻璃面板、多模态记忆、本地存档
  */
 
 let stars = [];
+let bgStars = [];
 let sectors = ["家庭", "职场", "朋友", "兴趣"];
 let colors = ["#FF6B6B", "#4D96FF", "#6BCB77", "#FFD93D"];
 
 let isPanelOpen = false;
 let selectedStarId = null;
 
-// 时间轴相关
+// 时光机
 let timeSlider;
 let timeLabel;
 let minDate, maxDate;
 let currentViewDate;
 
-const STORAGE_KEY = "echoUniverse_V5_Safe"; // 换个Key防止旧数据冲突
+const STORAGE_KEY = "echo_universe_final_v3";
 
 function setup() {
   createCanvas(windowWidth, windowHeight);
 
-  // 1. 初始化样式
   initPanelStyles();
-  
-  // 2. 创建界面元素
   createMemoryPanelUI();
   createTimeSliderUI();
-  
-  // 3. 加载数据
+
   loadStarsFromLocalStorage();
-  
-  // 4. 初始化时间边界
   updateTimeBounds();
+
+  // 背景星尘
+  for (let i = 0; i < 150; i++) {
+    bgStars.push({
+      x: random(width),
+      y: random(height),
+      size: random(0.5, 2),
+      alpha: random(30, 120),
+      speed: random(0.05, 0.2)
+    });
+  }
 }
 
 function draw() {
-  background(0, 0, 15);
+  background(10, 10, 20);
+
+  // 1. 绘制背景星尘
+  noStroke();
+  for (let b of bgStars) {
+    fill(255, b.alpha);
+    ellipse(b.x, b.y, b.size);
+    b.y -= b.speed;
+    if (b.y < 0) b.y = height;
+  }
 
   drawSectors();
   drawMe();
-  
-  // 实时更新当前时间视图
   updateCurrentViewDate();
 
+  // 2. 绘制星星
   for (let s of stars) {
-    // --- 时间过滤核心逻辑 ---
-    // 如果星星的诞生时间晚于滑块选择的时间，就不画它
     if (s.createdAt > currentViewDate) continue;
-
     if (isPanelOpen) {
-      // 面板打开时，星星变慢
-      s.angle += s.orbitSpeed * 0.2;
-      s.currentR = lerp(s.currentR, s.targetR, 0.03);
+      s.angle += s.orbitSpeed * 0.1;
     } else {
-      // 正常运转
       s.update();
     }
     s.display();
   }
 
-  // 打捞准星逻辑
+  // 3. 打捞准星
   let isAtPresent = (timeSlider.value() >= 100);
-  // 只有在：面板关闭 + 处于“现在”时间 + 鼠标按下时，才显示打捞UI
-    // 兼容鼠标按压 和 手指按压
   let isInputActive = mouseIsPressed || (touches.length > 0);
-  
   if (!isPanelOpen && isInputActive && isAtPresent && mouseY < height - 80) {
     drawFishingUI();
   }
 }
 
-// --- 交互逻辑 ---
-
 // ==========================================
-//   新的通用交互逻辑 (同时支持鼠标和触摸)
+//   交互逻辑 (统一鼠标与触摸)
 // ==========================================
 
-// 1. 处理“按下” (无论是鼠标点还是手指按)
 function handleInputStart(x, y) {
-  if (isPanelOpen) return;
-  if (y > height - 80) return; // 避开底部滑块
-
-  // 修正触摸坐标 (p5.js 的 touch 有时是个数组)
-  let inputX = x;
-  let inputY = y;
-
-  const hit = getStarUnderMouse(inputX, inputY);
-  
-  // 只有当前显示的星星才能点击
-  if (hit && hit.createdAt <= currentViewDate) {
-    openPanel(hit);
-    return; // 如果点中星星，就不要触发打捞
-  }
-  
-  // 记录打捞开始
-  // (p5.js 的 mouseIsPressed 在触摸模式下反应较慢，我们手动标记)
-  window.isInteracting = true; 
-}
-
-// 2. 处理“松开”
-function handleInputEnd(x, y) {
-  window.isInteracting = false;
-  
+  // 如果面板是开着的，canvas 层面的所有点击直接拦截
   if (isPanelOpen) return;
   if (y > height - 80) return;
 
-  // 只有在“现在”才能打捞
+  // 手机端判定范围调大到 35
+  const hit = getStarAt(x, y, 35);
+  if (hit && hit.createdAt <= currentViewDate) {
+    openPanel(hit);
+  }
+}
+
+function handleInputEnd(x, y) {
+  if (isPanelOpen) return;
+  if (y > height - 80) return;
+
   let isAtPresent = (timeSlider.value() >= 100);
   if (!isAtPresent) return;
 
-  const hit = getStarUnderMouse(x, y);
+  const hit = getStarAt(x, y, 35);
   if (hit) return;
 
   let d = dist(x, y, width / 2, height / 2);
-  if (d <= 30) return;
+  if (d <= 35) return;
 
-  // 生成逻辑
   let radius = constrain(d, 50, width / 2);
   let ang = atan2(y - height / 2, x - width / 2);
   if (ang < 0) ang += TWO_PI;
-  
   let sectorIndex = floor(map(ang, 0, TWO_PI, 0, sectors.length));
-  sectorIndex = constrain(sectorIndex, 0, sectors.length - 1);
+  
+  // 手机上 prompt 依然是最简单有效的方式
+  setTimeout(() => {
+    let name = prompt("这颗星星叫什么名字？", "");
+    if (name) {
+      const star = new Star({
+        id: cryptoRandomId(),
+        name: name,
+        sectorIndex: sectorIndex,
+        targetR: radius,
+        angle: ang,
+        orbitSpeed: random(0.002, 0.005) * (random() > 0.5 ? 1 : -1),
+        size: random(5, 8),
+        memories: [],
+        createdAt: Date.now()
+      });
+      stars.push(star);
+      updateTimeBounds();
+      saveStarsToLocalStorage();
+    }
+  }, 100);
+}
 
-  let name = prompt("这颗星星叫什么名字？", "某人");
-  // 注意：手机上 prompt 可能会打断全屏体验，后期可以用自定义模态框代替
-  if (!name) return;
+// p5 事件监听
+function mousePressed() { handleInputStart(mouseX, mouseY); return false; }
+function mouseReleased() { handleInputEnd(mouseX, mouseY); return false; }
+function touchStarted() { if (touches.length > 0) handleInputStart(touches[0].x, touches[0].y); return false; }
+function touchEnded() { handleInputEnd(mouseX, mouseY); return false; }
 
-  const star = new Star({
-    id: cryptoRandomId(),
-    name: name,
-    sectorIndex: sectorIndex,
-    targetR: radius,
-    angle: ang,
-    orbitSpeed: random(0.002, 0.005) * (random() > 0.5 ? 1 : -1) * map(radius, 50, width / 2, 1.2, 0.6),
-    size: random(5, 8),
-    memories: [],
-    createdAt: Date.now()
-  });
-
-  stars.push(star);
-  updateTimeBounds();
-  saveStarsToLocalStorage();
+function getStarAt(x, y, threshold) {
+  for (let i = stars.length - 1; i >= 0; i--) {
+    let p = stars[i].getPos();
+    if (dist(x, y, p.x, p.y) < threshold) return stars[i];
+  }
+  return null;
 }
 
 // ==========================================
-//   p5.js 事件绑定
+//   核心类：Star
 // ==========================================
-
-// 鼠标事件
-function mousePressed() {
-  handleInputStart(mouseX, mouseY);
-  // 返回 false 防止默认浏览器行为 (如选中文字)
-  return false; 
-}
-
-function mouseReleased() {
-  handleInputEnd(mouseX, mouseY);
-  return false;
-}
-
-// 触摸事件 (关键！)
-function touchStarted() {
-  // touches[0] 是第一根手指
-  if (touches.length > 0) {
-    handleInputStart(touches[0].x, touches[0].y);
-  }
-  // 必须返回 false，否则手机会触发滚动或缩放
-  return false; 
-}
-
-function touchEnded() {
-  // 注意：touchEnded 时 touches 数组可能已经空了，我们用 p5 的 mouseX/Y 近似最后位置
-  // 或者直接不传参，依靠 handleInputEnd 里的逻辑
-  handleInputEnd(mouseX, mouseY);
-  return false;
-}
-
-// 还要修改一下 draw() 里绘制准星的判断条件
-// 把 mouseIsPressed 改成 (mouseIsPressed || (touches.length > 0))
-
-// --- 时间轴 UI ---
-
-function createTimeSliderUI() {
-  timeSlider = createSlider(0, 100, 100);
-  timeSlider.position(40, height - 60);
-  timeSlider.style('width', (width - 80) + 'px');
-  timeSlider.addClass('time-slider');
-
-  timeLabel = createDiv("现在");
-  timeLabel.position(width/2, height - 90);
-  timeLabel.id('time-label');
-  timeLabel.style('color', '#4D96FF');
-  timeLabel.style('font-family', 'sans-serif');
-  timeLabel.style('text-align', 'center');
-  timeLabel.style('transform', 'translateX(-50%)');
-  timeLabel.style('pointer-events', 'none');
-}
-
-function updateTimeBounds() {
-  if (stars.length === 0) {
-    minDate = Date.now();
-    maxDate = Date.now();
-  } else {
-    let timestamps = stars.map(s => s.createdAt);
-    minDate = min(timestamps);
-    maxDate = Date.now();
-  }
-  // 起点往前推7天，保证能回溯到空状态
-  minDate = minDate - 1000 * 60 * 60 * 24 * 7;
-}
-
-function updateCurrentViewDate() {
-  maxDate = Date.now();
-  let val = timeSlider.value();
-  currentViewDate = map(val, 0, 100, minDate, maxDate);
-  
-  let dateObj = new Date(currentViewDate);
-  let dateStr = dateObj.getFullYear() + "/" + (dateObj.getMonth()+1) + "/" + dateObj.getDate();
-  
-  if (val >= 100) {
-    timeLabel.html("现在");
-    timeLabel.style('color', '#4D96FF');
-    timeLabel.style('font-size', '16px');
-  } else {
-    timeLabel.html("回溯: " + dateStr);
-    timeLabel.style('color', '#FF6B6B');
-    timeLabel.style('font-size', '20px');
-  }
-}
-
-// --- 星星类 ---
 
 class Star {
   constructor({ id, name, sectorIndex, targetR, angle, orbitSpeed, size, memories, createdAt }) {
@@ -247,9 +164,7 @@ class Star {
     this.createdAt = createdAt || Date.now();
   }
 
-  get color() {
-    return colors[this.sectorIndex];
-  }
+  get color() { return colors[this.sectorIndex]; }
 
   update() {
     this.currentR = lerp(this.currentR, this.targetR, 0.05);
@@ -262,183 +177,59 @@ class Star {
     return { x, y };
   }
 
-  isMouseOver() {
-    let p = this.getPos();
-    return dist(mouseX, mouseY, p.x, p.y) < 14;
-  }
-
   display() {
     push();
     translate(width / 2, height / 2);
-
-    // 轨道
-    noFill();
-    stroke(red(this.color), green(this.color), blue(this.color), 30);
-    ellipse(0, 0, this.targetR * 2);
-
     let x = cos(this.angle) * this.currentR;
     let y = sin(this.angle) * this.currentR;
 
-    let hover = dist(mouseX - width / 2, mouseY - height / 2, x, y) < 14;
+    // 轨道
+    noFill(); stroke(red(this.color), green(this.color), blue(this.color), 20);
+    ellipse(0, 0, this.targetR * 2);
 
-    // 悬停显示名字
-    if (hover && !isPanelOpen) {
-      fill(255);
-      noStroke();
-      textAlign(LEFT, CENTER);
-      text(this.name, x + 14, y);
-      
-      // 轨道高亮
-      noFill();
-      stroke(this.color);
-      ellipse(0, 0, this.targetR * 2);
-    }
+    // 呼吸效果
+    let breath = sin(frameCount * 0.05 + (this.id.charCodeAt(0)||0)) * 2;
+    let currentSize = this.size + breath;
 
+    // 绘制
+    fill(this.color); noStroke();
+    drawingContext.shadowBlur = 15;
+    drawingContext.shadowColor = this.color;
+    ellipse(x, y, currentSize);
+    
     // 选中光圈
     if (this.id === selectedStarId) {
-      noFill();
-      stroke(255);
-      strokeWeight(2);
-      ellipse(x, y, 22);
-      strokeWeight(1);
+      noFill(); stroke(255); strokeWeight(2);
+      ellipse(x, y, currentSize + 10);
     }
-
-    // 星星本体
-    fill(this.color);
-    noStroke();
-    drawingContext.shadowBlur = hover ? 18 : 10;
-    drawingContext.shadowColor = this.color;
-    ellipse(x, y, hover ? this.size * 1.2 : this.size);
-
     pop();
   }
 }
 
-// --- 辅助功能函数 ---
-
-function getStarUnderMouse(x, y) {
-  // 如果没传参数，默认用鼠标位置
-  let tx = x || mouseX;
-  let ty = y || mouseY;
-  
-  for (let i = stars.length - 1; i >= 0; i--) {
-    // 也要修改 isMouseOver 方法，或者直接在这里算距离
-    let p = stars[i].getPos();
-    // 手机上判定范围要大一点 (把 14 改成 30)，因为手指比较粗
-    if (dist(tx, ty, p.x, p.y) < 30 && stars[i].createdAt <= currentViewDate) {
-      return stars[i];
-    }
-  }
-  return null;
-}
-
-function drawSectors() {
-  push();
-  translate(width / 2, height / 2);
-  stroke(255, 15);
-  for (let i = 0; i < sectors.length; i++) {
-    let a = (TWO_PI / sectors.length) * i;
-    line(0, 0, cos(a) * width, sin(a) * width);
-    fill(255, 40);
-    noStroke();
-    textSize(14);
-    textAlign(CENTER, CENTER);
-    let labelA = a + (TWO_PI / sectors.length) / 2;
-    text(sectors[i], cos(labelA) * (width / 3), sin(labelA) * (width / 3));
-  }
-  pop();
-}
-
-function drawMe() {
-  push();
-  translate(width / 2, height / 2);
-  noStroke();
-  for (let i = 6; i > 0; i--) {
-    fill(255, 204, 0, 22 - i * 3);
-    ellipse(0, 0, i * 8);
-  }
-  fill(255, 204, 0);
-  ellipse(0, 0, 10, 10);
-  pop();
-}
-
-function drawFishingUI() {
-  push();
-  noFill();
-  stroke(255, 150);
-  ellipse(mouseX, mouseY, 20, 20);
-  line(mouseX - 15, mouseY, mouseX + 15, mouseY);
-  line(mouseX, mouseY - 15, mouseX, mouseY + 15);
-  stroke(255, 50);
-  line(mouseX, mouseY, width / 2, height / 2);
-  pop();
-}
-
-function windowResized() {
-  resizeCanvas(windowWidth, windowHeight);
-  if (timeSlider) timeSlider.style('width', (width - 80) + 'px');
-}
-
-function cryptoRandomId() {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
-  return "id_" + Math.random().toString(16).slice(2) + "_" + Date.now();
-}
-
-// --- 存储逻辑 ---
-
-function saveStarsToLocalStorage() {
-  const data = stars.map(s => ({
-    id: s.id,
-    name: s.name,
-    sectorIndex: s.sectorIndex,
-    targetR: s.targetR,
-    currentR: s.currentR,
-    angle: s.angle,
-    orbitSpeed: s.orbitSpeed,
-    size: s.size,
-    memories: s.memories || [],
-    createdAt: s.createdAt
-  }));
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-}
-
-function loadStarsFromLocalStorage() {
-  const saved = localStorage.getItem(STORAGE_KEY);
-  if (!saved) return;
-  try {
-    const data = JSON.parse(saved);
-    stars = data.map(item => new Star({
-      id: item.id,
-      name: item.name,
-      sectorIndex: item.sectorIndex,
-      targetR: item.targetR,
-      angle: item.angle,
-      orbitSpeed: item.orbitSpeed,
-      size: item.size,
-      memories: item.memories,
-      createdAt: item.createdAt
-    }));
-  } catch (e) {
-    console.warn("Load failed", e);
-  }
-}
-
-// --- DOM 面板与样式 ---
+// ==========================================
+//   面板与 UI 逻辑 (关键适配)
+// ==========================================
 
 function createMemoryPanelUI() {
   const backdrop = createDiv("");
   backdrop.id("backdrop");
   backdrop.hide();
-  backdrop.mousePressed(() => closePanel()); // 点击遮罩关闭
+  
+  // 强制使用原生点击，解决手机穿透
+  backdrop.elt.onclick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    closePanel();
+  };
 
   const panel = createDiv(`
     <div id="panel-header">
-      <h2 id="panel-title">星星名字</h2>
+      <h2 id="panel-title">星星</h2>
       <span id="panel-sector" class="tag">扇区</span>
     </div>
     <div id="memory-list"></div>
     <div id="panel-input-area">
-      <textarea id="memory-input" placeholder="写下关于 ta 的记忆..."></textarea>
+      <textarea id="memory-input" placeholder="输入记忆..."></textarea>
       <button id="save-btn">记录</button>
     </div>
     <button id="close-btn">×</button>
@@ -446,30 +237,28 @@ function createMemoryPanelUI() {
   panel.id("memory-panel");
   panel.hide();
 
-  // 阻止点击穿透
-  panel.elt.addEventListener("mousedown", (e) => e.stopPropagation());
-  panel.elt.addEventListener("click", (e) => e.stopPropagation());
+  // 拦截面板内点击，防止点到下面的星星
+  panel.elt.onclick = (e) => e.stopPropagation();
+  panel.elt.ontouchstart = (e) => e.stopPropagation();
 
-  select("#save-btn").mousePressed(saveNewMemory);
-  select("#close-btn").mousePressed(closePanel);
+  document.getElementById('save-btn').onclick = (e) => { saveNewMemory(); };
+  document.getElementById('close-btn').onclick = (e) => { closePanel(); };
 }
 
 function openPanel(star) {
   isPanelOpen = true;
   selectedStarId = star.id;
-
   select("#panel-title").html(star.name);
   select("#panel-sector").html(sectors[star.sectorIndex]);
-  const list = select("#memory-list");
-  list.html("");
+  const list = select("#memory-list"); list.html("");
   (star.memories || []).forEach(mem => addMemoryToDOM(mem));
-
   select("#backdrop").show();
-  select("#memory-panel").show();
+  select("#memory-panel").style("display", "flex");
 }
 
 function closePanel() {
-  isPanelOpen = false;
+  // 延迟一丁点关闭标记，防止点击穿透到 canvas 触发新打捞
+  setTimeout(() => { isPanelOpen = false; }, 100);
   selectedStarId = null;
   select("#memory-panel").hide();
   select("#backdrop").hide();
@@ -482,52 +271,102 @@ function saveNewMemory() {
   const text = ta.value.trim();
   if (!text) return;
   const mem = { date: new Date().toLocaleString(), content: text };
-  
   star.memories.push(mem);
   addMemoryToDOM(mem);
   ta.value = "";
-  
   saveStarsToLocalStorage();
 }
 
 function addMemoryToDOM(mem) {
   const list = select("#memory-list");
-  const item = createDiv("");
+  const item = createDiv(`<div class="memory-date">${mem.date}</div><div class="memory-content">${mem.content}</div>`);
   item.addClass("memory-item");
-  
-  const dateDiv = createDiv(mem.date);
-  dateDiv.addClass("memory-date");
-  dateDiv.parent(item);
-  
-  const contentDiv = createDiv(mem.content);
-  contentDiv.addClass("memory-content");
-  contentDiv.parent(item);
-  
   item.parent(list);
   list.elt.scrollTop = list.elt.scrollHeight;
 }
 
+// ==========================================
+//   时光机与存储
+// ==========================================
+
+function createTimeSliderUI() {
+  timeSlider = createSlider(0, 100, 100);
+  timeSlider.position(40, height - 60);
+  timeSlider.style('width', (width - 80) + 'px');
+  timeSlider.addClass('time-slider');
+  timeLabel = createDiv("现在");
+  timeLabel.position(width/2, height - 90);
+  timeLabel.id('time-label');
+}
+
+function updateTimeBounds() {
+  if (stars.length === 0) { minDate = Date.now(); maxDate = Date.now(); }
+  else { minDate = min(stars.map(s => s.createdAt)) - 86400000; maxDate = Date.now(); }
+}
+
+function updateCurrentViewDate() {
+  maxDate = Date.now();
+  currentViewDate = map(timeSlider.value(), 0, 100, minDate, maxDate);
+  let d = new Date(currentViewDate);
+  timeLabel.html(timeSlider.value() >= 100 ? "现在" : `回溯: ${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`);
+  timeLabel.style('color', timeSlider.value() >= 100 ? '#4D96FF' : '#FF6B6B');
+}
+
+function saveStarsToLocalStorage() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(stars));
+}
+
+function loadStarsFromLocalStorage() {
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (saved) {
+    const data = JSON.parse(saved);
+    stars = data.map(s => new Star(s));
+  }
+}
+
 function initPanelStyles() {
   const css = `
-    /* 时间轴样式 */
-    input[type=range].time-slider { -webkit-appearance: none; background: transparent; }
-    input[type=range].time-slider::-webkit-slider-thumb { -webkit-appearance: none; height: 16px; width: 16px; border-radius: 50%; background: #4D96FF; cursor: pointer; margin-top: -6px; box-shadow: 0 0 10px #4D96FF; }
-    input[type=range].time-slider::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: rgba(255,255,255,0.2); border-radius: 2px; }
-
-    /* 记忆面板样式 */
-    #backdrop{ display:none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 999; pointer-events: auto; }
-    #memory-panel{ display:none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 340px; height: 480px; background: rgba(20, 20, 30, 0.95); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; color: #fff; font-family: sans-serif; z-index: 1000; overflow: hidden; display: flex; flex-direction: column; pointer-events: auto; }
-    #panel-header{ padding: 18px; border-bottom: 1px solid rgba(255,255,255,0.06); }
-    #panel-title{ margin: 0; font-size: 22px; }
-    .tag{ display:inline-block; margin-top: 8px; font-size: 12px; background: rgba(255,255,255,0.1); padding: 3px 8px; border-radius: 10px; color: #aaa; }
-    #memory-list{ flex: 1; overflow-y: auto; padding: 14px 18px; }
-    .memory-item{ margin-bottom: 14px; padding-left: 10px; border-left: 2px solid #FFCC00; }
-    .memory-date{ font-size: 11px; color: #888; margin-bottom: 2px; }
-    .memory-content{ font-size: 14px; color: #eee; }
-    #panel-input-area{ display:flex; gap: 10px; padding: 14px; background: rgba(0,0,0,0.2); border-top: 1px solid rgba(255,255,255,0.1); }
-    #memory-input{ flex: 1; height: 40px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: white; padding: 8px; resize: none; }
-    #save-btn{ background: #4D96FF; color: white; border: none; border-radius: 8px; padding: 0 12px; cursor: pointer; }
-    #close-btn{ position:absolute; top: 10px; right: 12px; background: none; border: none; color: #aaa; font-size: 24px; cursor: pointer; }
+    #backdrop { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; }
+    #memory-panel { display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); width:90%; max-width:350px; height:70%; background:rgba(25,25,35,0.95); backdrop-filter:blur(15px); border-radius:20px; color:#fff; font-family:sans-serif; z-index:1001; flex-direction:column; overflow:hidden; border:1px solid rgba(255,255,255,0.1); }
+    #panel-header { padding:20px; border-bottom:1px solid rgba(255,255,255,0.1); }
+    #memory-list { flex:1; overflow-y:auto; padding:20px; }
+    #panel-input-area { padding:15px; background:rgba(0,0,0,0.3); display:flex; gap:10px; }
+    #memory-input { flex:1; height:45px; background:rgba(255,255,255,0.1); border:none; border-radius:10px; color:#fff; padding:10px; }
+    #save-btn { background:#4D96FF; border:none; border-radius:10px; padding:0 15px; color:#fff; }
+    #close-btn { position:absolute; top:10px; right:10px; width:44px; height:44px; background:rgba(255,255,255,0.1); border:none; border-radius:22px; color:#fff; font-size:24px; }
+    .memory-item { margin-bottom:15px; border-left:2px solid #FFCC00; padding-left:10px; }
+    .memory-date { font-size:10px; color:#888; }
+    .tag { font-size:11px; background:rgba(255,255,255,0.1); padding:2px 8px; border-radius:5px; }
+    input[type=range].time-slider { -webkit-appearance:none; width:100%; background:transparent; }
+    input[type=range].time-slider::-webkit-slider-thumb { -webkit-appearance:none; height:20px; width:20px; border-radius:50%; background:#4D96FF; cursor:pointer; margin-top:-8px; }
+    input[type=range].time-slider::-webkit-slider-runnable-track { height:4px; background:rgba(255,255,255,0.2); }
+    #time-label { color:#4D96FF; font-family:sans-serif; transform:translateX(-50%); }
   `;
   createElement("style", css);
 }
+
+function drawSectors() {
+  push(); translate(width/2, height/2); stroke(255, 10);
+  for (let i = 0; i < sectors.length; i++) {
+    let a = (TWO_PI / sectors.length) * i;
+    line(0, 0, cos(a) * width, sin(a) * width);
+    fill(255, 30); noStroke(); textAlign(CENTER);
+    let la = a + (TWO_PI / sectors.length) / 2;
+    text(sectors[i], cos(la) * (width/3.5), sin(la) * (width/3.5));
+  }
+  pop();
+}
+
+function drawMe() {
+  push(); translate(width/2, height/2); fill(255, 204, 0); noStroke();
+  ellipse(0, 0, 10, 10); pop();
+}
+
+function drawFishingUI() {
+  push(); noFill(); stroke(255, 150); ellipse(mouseX, mouseY, 30, 30);
+  line(mouseX-20, mouseY, mouseX+20, mouseY); line(mouseX, mouseY-20, mouseX, mouseY+20);
+  stroke(255, 50); line(mouseX, mouseY, width/2, height/2); pop();
+}
+
+function windowResized() { resizeCanvas(windowWidth, windowHeight); timeSlider.style('width', (width - 80) + 'px'); }
+function cryptoRandomId() { return Date.now().toString(36) + Math.random().toString(36).substr(2); }
